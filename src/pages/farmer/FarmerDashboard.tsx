@@ -186,7 +186,7 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
               {recentRelationships.map((rel) => (
                 <div
                   key={rel._id}
-                  onClick={() => onNavigate(`/farmer/active/${rel._id}`)}
+                  onClick={() => onNavigate(`/farmer/lifecycle/${rel._id}`)}
                   className="p-4 rounded-xl border border-neutral-200 hover:border-emerald-700 transition-colors cursor-pointer space-y-3 hover:bg-neutral-50/50"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -202,6 +202,9 @@ export const FarmerDashboard: React.FC<FarmerDashboardProps> = ({
                       {rel.lifecycleStage.replace(/_/g, ' ')}
                     </span>
                   </div>
+                  <p className="text-[11px] text-neutral-400">
+                    Lifecycle last updated {new Date(rel.updatedAt).toLocaleString('en-IN')}
+                  </p>
 
                   {/* Progress bar */}
                   <div className="space-y-1">

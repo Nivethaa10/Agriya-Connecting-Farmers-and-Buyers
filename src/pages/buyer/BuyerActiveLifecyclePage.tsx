@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, getErrorMessage } from '../../services/api.ts';
+import { ContractLifecycleHistory } from '../../components/ContractLifecycleHistory.tsx';
 import {
   ContractRelationship,
   ProgressUpdate,
@@ -221,6 +222,9 @@ export const BuyerActiveLifecyclePage: React.FC<BuyerActiveLifecyclePageProps> =
               Contracted Producer: <strong>{relationship.farmerId?.name}</strong> · Phone:{' '}
               {relationship.farmerId?.phone} · Email: {relationship.farmerId?.email}
             </p>
+            <p className="text-[11px] text-neutral-400 mt-1">
+              Last updated {new Date(relationship.updatedAt).toLocaleString('en-IN')}
+            </p>
           </div>
 
           <button
@@ -274,6 +278,8 @@ export const BuyerActiveLifecyclePage: React.FC<BuyerActiveLifecyclePageProps> =
           </div>
         </div>
       </div>
+
+      <ContractLifecycleHistory entries={relationship.lifecycleHistory} />
 
       {notificationMsg && (
         <div
@@ -453,7 +459,7 @@ export const BuyerActiveLifecyclePage: React.FC<BuyerActiveLifecyclePageProps> =
                 Record laboratory moisture content, foreign matter impurities, and official grade acceptance
               </p>
             </div>
-            {!isRecordingInspection && (
+            {!isRecordingInspection && relationship.lifecycleStage === 'harvested' && relationship.status === 'active' && (
               <button
                 onClick={() => setIsRecordingInspection(true)}
                 className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950 transition-colors flex items-center gap-1.5 shadow-xs"
@@ -651,7 +657,7 @@ export const BuyerActiveLifecyclePage: React.FC<BuyerActiveLifecyclePageProps> =
                 Confirm truck arrival, verify weighbridge slips, and formalize consignment receipt
               </p>
             </div>
-            {delivery?.status !== 'confirmed' && !isConfirmingDelivery && (
+            {delivery?.status !== 'confirmed' && !isConfirmingDelivery && relationship.lifecycleStage === 'in_transit' && relationship.status === 'active' && (
               <button
                 onClick={() => setIsConfirmingDelivery(true)}
                 className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950 transition-colors flex items-center gap-1.5 shadow-xs"
@@ -772,7 +778,7 @@ export const BuyerActiveLifecyclePage: React.FC<BuyerActiveLifecyclePageProps> =
                 Record banking RTGS/NEFT transaction references and settlement milestones
               </p>
             </div>
-            {!isRecordingPayment && (
+            {!isRecordingPayment && relationship.lifecycleStage === 'delivered' && relationship.status === 'active' && (
               <button
                 onClick={() => setIsRecordingPayment(true)}
                 className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950 transition-colors flex items-center gap-1.5 shadow-xs"

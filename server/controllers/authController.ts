@@ -5,6 +5,13 @@ import { BuyerProfile } from '../models/BuyerProfile.ts';
 import { Notification } from '../models/Notification.ts';
 import { AuthenticatedRequest, generateToken } from '../middleware/auth.ts';
 
+const sessionCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  path: '/',
+};
+
 export async function register(req: AuthenticatedRequest, res: Response) {
   try {
     const { name, email, phone, password, confirmPassword, role } = req.body;
@@ -125,11 +132,14 @@ export async function register(req: AuthenticatedRequest, res: Response) {
     });
 
     const token = generateToken(user);
+    res.cookie('agriya_session', token, {
+      ...sessionCookieOptions,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
 
     return res.status(201).json({
       success: true,
       message: 'Registration successful!',
-      token,
       user: {
         _id: user._id,
         name: user.name,
@@ -141,10 +151,10 @@ export async function register(req: AuthenticatedRequest, res: Response) {
       profile,
     });
   } catch (err: any) {
-    console.error('Registration error:', err);
+    console.error(`Registration failed (${err?.name || 'Error'}).`);
     return res.status(500).json({
       success: false,
-      message: err.message || 'Server error during registration.',
+      message: 'Server error during registration.',
     });
   }
 }
@@ -198,11 +208,14 @@ export async function login(req: AuthenticatedRequest, res: Response) {
     }
 
     const token = generateToken(user);
+    res.cookie('agriya_session', token, {
+      ...sessionCookieOptions,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
 
     return res.status(200).json({
       success: true,
       message: 'Login successful',
-      token,
       user: {
         _id: user._id,
         name: user.name,
@@ -214,10 +227,10 @@ export async function login(req: AuthenticatedRequest, res: Response) {
       profile,
     });
   } catch (err: any) {
-    console.error('Login error:', err);
+    console.error(`Login failed (${err?.name || 'Error'}).`);
     return res.status(500).json({
       success: false,
-      message: err.message || 'Server error during login.',
+      message: 'Server error during login.',
     });
   }
 }
@@ -254,14 +267,15 @@ export async function getMe(req: AuthenticatedRequest, res: Response) {
   } catch (err: any) {
     return res.status(500).json({
       success: false,
-      message: err.message || 'Failed to retrieve user profile.',
+      message: 'Failed to retrieve user profile.',
     });
   }
 }
 
 export async function logout(_req: AuthenticatedRequest, res: Response) {
+  res.clearCookie('agriya_session', sessionCookieOptions);
   return res.status(200).json({
     success: true,
-    message: 'User logged out successfully. Client credentials must be cleared.',
+    message: 'User logged out successfully.',
   });
 }

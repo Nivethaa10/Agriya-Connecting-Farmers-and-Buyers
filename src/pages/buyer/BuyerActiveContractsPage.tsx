@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../../services/api.ts';
+import { api, getErrorMessage } from '../../services/api.ts';
 import { ContractRelationship } from '../../types/index.ts';
 import { Sprout, ArrowRight, Wheat, Calendar, MapPin, CheckCircle2, Users } from 'lucide-react';
 
@@ -12,16 +12,18 @@ export const BuyerActiveContractsPage: React.FC<BuyerActiveContractsPageProps> =
 }) => {
   const [relationships, setRelationships] = useState<ContractRelationship[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchActiveContracts = async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await api.get('/buyer/active-contracts');
       if (res.data.success) {
         setRelationships(res.data.relationships || []);
       }
     } catch (err) {
-      console.error(err);
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -47,6 +49,10 @@ export const BuyerActiveContractsPage: React.FC<BuyerActiveContractsPageProps> =
 
       {loading ? (
         <div className="p-16 text-center text-xs text-neutral-400">Loading active contracts...</div>
+      ) : error ? (
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs text-rose-800">
+          Could not load contract lifecycle data: {error}
+        </div>
       ) : relationships.length === 0 ? (
         <div className="bg-white rounded-2xl border border-neutral-200 p-16 text-center space-y-3">
           <Users className="w-10 h-10 text-neutral-300 mx-auto" />
@@ -89,6 +95,29 @@ export const BuyerActiveContractsPage: React.FC<BuyerActiveContractsPageProps> =
                   </span>
                 </div>
               </div>
+
+              <p className="text-[11px] text-neutral-400">
+                Lifecycle last updated {new Date(rel.updatedAt).toLocaleString('en-IN')}
+              </p>
+
+              <section className="rounded-xl border border-emerald-100 bg-emerald-50/50 p-4 space-y-2">
+                <h4 className="text-xs font-semibold text-neutral-900">Contract Lifecycle &amp; Progress</h4>
+                {rel.latestProgress ? (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-semibold text-emerald-950">
+                        {rel.latestProgress.stageName} · {rel.latestProgress.progressPercentage}%
+                      </p>
+                      <time className="text-[11px] text-neutral-500">
+                        {new Date(rel.latestProgress.recordedAt).toLocaleString('en-IN')}
+                      </time>
+                    </div>
+                    <p className="text-xs text-neutral-700">{rel.latestProgress.notes}</p>
+                  </>
+                ) : (
+                  <p className="text-xs text-neutral-500">No farmer progress update has been recorded yet.</p>
+                )}
+              </section>
 
               {/* Progress bar */}
               <div className="space-y-1.5">
@@ -133,7 +162,7 @@ export const BuyerActiveContractsPage: React.FC<BuyerActiveContractsPageProps> =
 
               <div className="pt-1 flex items-center justify-end">
                 <button
-                  onClick={() => onNavigate(`/buyer/active/${rel._id}`)}
+                  onClick={() => onNavigate(`/buyer/lifecycle/${rel._id}`)}
                   className="px-5 py-2.5 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950 transition-colors shadow-xs flex items-center gap-1.5"
                 >
                   <span>Open Operational Console</span>

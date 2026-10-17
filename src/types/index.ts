@@ -139,6 +139,18 @@ export interface ContractRelationship {
     | 'delivered'
     | 'completed';
   progressPercentage: number;
+  latestProgress?: ProgressUpdate | null;
+  lifecycleHistory?: {
+    previousStage: ContractRelationship['lifecycleStage'];
+    newStage: ContractRelationship['lifecycleStage'];
+    progressPercentage: number;
+    previousStatus: ContractRelationship['status'];
+    newStatus: ContractRelationship['status'];
+    actorId: string;
+    actorRole: 'farmer' | 'buyer';
+    notes: string;
+    recordedAt: string;
+  }[];
   status: 'active' | 'completed' | 'disputed';
   statusReason?: string;
   activatedAt: string;

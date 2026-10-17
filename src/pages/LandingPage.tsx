@@ -181,7 +181,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onNavigate, onSelectCo
                     <div className="flex items-center justify-between">
                       <span className="text-xs text-neutral-500">Agreed Price</span>
                       <span className="text-sm font-bold text-emerald-900 tabular-nums">
-                        ₹{contract.pricePerTon.toLocaleString('en-IN')} / ton
+                        ₹{contract.pricePerTon?.toLocaleString('en-IN') ?? 'N/A'} / ton
                       </span>
                     </div>
                     <div className="flex items-center justify-between text-xs text-neutral-600">

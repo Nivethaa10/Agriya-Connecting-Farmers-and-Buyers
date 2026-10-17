@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext.tsx';
-import { Sprout, Lock, Mail, AlertCircle, ArrowRight, ShieldCheck, Check } from 'lucide-react';
+import { Sprout, Lock, Mail, AlertCircle, ArrowRight } from 'lucide-react';
 
 interface LoginPageProps {
   onNavigate: (path: string) => void;
@@ -27,9 +27,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
       const res = await login(identifier, password);
       if (res.success) {
         // Redirection based on role
-        if (roleHint === 'admin' || identifier.includes('admin')) {
+        if (res.role === 'admin') {
           onNavigate('/admin/dashboard');
-        } else if (roleHint === 'buyer') {
+        } else if (res.role === 'buyer') {
           onNavigate('/buyer/dashboard');
         } else {
           onNavigate('/farmer/dashboard');
@@ -44,16 +44,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
     }
   };
 
-  const setHelperCredentials = (type: 'admin' | 'sampleBuyer') => {
-    if (type === 'admin') {
-      setRoleHint('admin');
-      setIdentifier('admin@agriya.org');
-      setPassword('AdminSecure@2026');
-    } else if (type === 'sampleBuyer') {
-      setRoleHint('buyer');
-      setIdentifier('procurement@agriexport.in');
-      setPassword('BuyerSecure@2026');
-    }
+  const setHelperCredentials = () => {
+    setRoleHint('buyer');
+    setIdentifier('procurement@agriexport.in');
+    setPassword('BuyerSecure@2026');
   };
 
   return (
@@ -171,14 +165,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setHelperCredentials('admin')}
-              className="text-[11px] px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-md transition-colors"
-            >
-              Fill Initial Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => setHelperCredentials('sampleBuyer')}
+              onClick={setHelperCredentials}
               className="text-[11px] px-2.5 py-1 bg-neutral-100 hover:bg-neutral-200 text-neutral-700 rounded-md transition-colors"
             >
               Fill Sample Verified Buyer

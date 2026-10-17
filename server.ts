@@ -76,18 +76,29 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
+app.use('/api', (_req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'API endpoint not found.',
+  });
+});
+
 // Centralized error handling middleware
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('Unhandled Application Error:', err);
+  console.error(`Unhandled application error (${err?.name || 'Error'}).`);
   const statusCode = err.status || err.statusCode || 500;
   res.status(statusCode).json({
     success: false,
-    message: err.message || 'An internal server error occurred.',
+    message: statusCode < 500 ? err.message : 'An internal server error occurred.',
   });
 });
 
 async function startServer() {
   try {
+    if (!process.env.JWT_SECRET) {
+      throw new Error('JWT_SECRET must be configured before starting the server.');
+    }
+
     // 1. Connect to MongoDB
     await connectDB();
 
@@ -119,7 +130,8 @@ async function startServer() {
       console.log(`====================================================`);
     });
   } catch (error) {
-    console.error('Fatal Server Boot Error:', error);
+    const errorName = error instanceof Error ? error.name : 'Error';
+    console.error(`Fatal server boot error (${errorName}).`);
     process.exit(1);
   }
 }

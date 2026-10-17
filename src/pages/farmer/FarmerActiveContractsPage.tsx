@@ -90,6 +90,10 @@ export const FarmerActiveContractsPage: React.FC<FarmerActiveContractsPageProps>
                 </div>
               </div>
 
+              <p className="text-[11px] text-neutral-400">
+                Lifecycle last updated {new Date(rel.updatedAt).toLocaleString('en-IN')}
+              </p>
+
               {/* Progress bar */}
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between text-xs">
@@ -134,7 +138,7 @@ export const FarmerActiveContractsPage: React.FC<FarmerActiveContractsPageProps>
 
               <div className="pt-1 flex items-center justify-end">
                 <button
-                  onClick={() => onNavigate(`/farmer/active/${rel._id}`)}
+                  onClick={() => onNavigate(`/farmer/lifecycle/${rel._id}`)}
                   className="px-5 py-2.5 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950 transition-colors shadow-xs flex items-center gap-1.5"
                 >
                   <span>Open Full Lifecycle Workspace</span>

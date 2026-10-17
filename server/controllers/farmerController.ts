@@ -10,6 +10,11 @@ import { QualityInspection } from '../models/QualityInspection.ts';
 import { Delivery } from '../models/Delivery.ts';
 import { Payment } from '../models/Payment.ts';
 import { Notification } from '../models/Notification.ts';
+import {
+  growthStageForProgress,
+  recordLifecycleUpdate,
+  validateGrowthUpdate,
+} from '../utils/contractLifecycle.ts';
 
 export async function getFarmerProfile(req: AuthenticatedRequest, res: Response) {
   try {
@@ -401,11 +406,24 @@ export async function addCultivationProgress(req: AuthenticatedRequest, res: Res
       return res.status(404).json({ success: false, message: 'Contract relationship not found.' });
     }
 
+    const lifecycleStage = growthStageForProgress(stageName);
+    const numericProgress = Number(progressPercentage);
+    if (!lifecycleStage) {
+      return res.status(400).json({
+        success: false,
+        message: 'Select one of the supported cultivation stages.',
+      });
+    }
+    const validationError = validateGrowthUpdate(relationship, lifecycleStage, numericProgress);
+    if (validationError) {
+      return res.status(400).json({ success: false, message: validationError });
+    }
+
     const progress = await ProgressUpdate.create({
       relationshipId: id,
       farmerId,
       stageName,
-      progressPercentage: Math.min(100, Math.max(0, Number(progressPercentage))),
+      progressPercentage: numericProgress,
       soilCondition: soilCondition || 'Optimal',
       irrigationStatus: irrigationStatus || 'Scheduled',
       fertilizerOrNutrientsApplied: fertilizerOrNutrientsApplied || '',
@@ -414,15 +432,7 @@ export async function addCultivationProgress(req: AuthenticatedRequest, res: Res
       notes,
     });
 
-    // Update relationship progress percentage & lifecycle stage
-    relationship.progressPercentage = Number(progressPercentage);
-    if (stageName.toLowerCase().includes('vegetative')) {
-      relationship.lifecycleStage = 'vegetative';
-    } else if (stageName.toLowerCase().includes('flower') || stageName.toLowerCase().includes('fruit')) {
-      relationship.lifecycleStage = 'flowering_fruiting';
-    } else if (stageName.toLowerCase().includes('ready') || stageName.toLowerCase().includes('mature')) {
-      relationship.lifecycleStage = 'mature_harvest_ready';
-    }
+    recordLifecycleUpdate(relationship, lifecycleStage, numericProgress, farmerId, 'farmer', notes);
     await relationship.save();
 
     // Notify buyer
@@ -431,7 +441,7 @@ export async function addCultivationProgress(req: AuthenticatedRequest, res: Res
       title: 'Cultivation Progress Update',
       message: `Farmer ${req.user!.name} posted a progress update for ${relationship.cropName} (${progressPercentage}% complete - ${stageName}).`,
       type: 'progress',
-      link: `/buyer/contracts/active/${id}`,
+      link: `/buyer/lifecycle/${id}`,
     });
 
     return res.status(201).json({
@@ -471,13 +481,29 @@ export async function recordFarmerHarvest(req: AuthenticatedRequest, res: Respon
       return res.status(404).json({ success: false, message: 'Contract relationship not found.' });
     }
 
+    const quantity = Number(harvestedQuantityTons);
+    const parsedHarvestDate = new Date(harvestDate);
+    if (
+      relationship.status !== 'active' ||
+      relationship.lifecycleStage !== 'mature_harvest_ready' ||
+      !Number.isFinite(quantity) ||
+      quantity <= 0 ||
+      quantity > relationship.agreedQuantityTons ||
+      Number.isNaN(parsedHarvestDate.getTime())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Harvest requires an active, mature contract and a valid quantity within the agreed amount.',
+      });
+    }
+
     const harvest = await Harvest.findOneAndUpdate(
       { relationshipId: id },
       {
         relationshipId: id,
         farmerId,
-        harvestDate: new Date(harvestDate),
-        harvestedQuantityTons: Number(harvestedQuantityTons),
+        harvestDate: parsedHarvestDate,
+        harvestedQuantityTons: quantity,
         measuredGrade: measuredGrade || 'Grade A1 Premium',
         moisturePercentage: Number(moisturePercentage) || 12,
         packagingDetails: packagingDetails || 'Food-grade breathable sacks',
@@ -488,8 +514,14 @@ export async function recordFarmerHarvest(req: AuthenticatedRequest, res: Respon
       { upsert: true, new: true }
     );
 
-    relationship.lifecycleStage = 'harvested';
-    relationship.progressPercentage = 80;
+    recordLifecycleUpdate(
+      relationship,
+      'harvested',
+      80,
+      farmerId,
+      'farmer',
+      specialObservations || 'Harvest recorded'
+    );
     await relationship.save();
 
     // Notify buyer that harvest is ready for inspection/scheduling
@@ -498,7 +530,7 @@ export async function recordFarmerHarvest(req: AuthenticatedRequest, res: Respon
       title: 'Harvest Recorded — Quality Inspection Required',
       message: `Farmer ${req.user!.name} recorded ${harvestedQuantityTons} tons of harvest for ${relationship.cropName}. Please review and conduct quality inspection.`,
       type: 'progress',
-      link: `/buyer/contracts/active/${id}`,
+      link: `/buyer/lifecycle/${id}`,
     });
 
     return res.status(200).json({
@@ -526,13 +558,29 @@ export async function updateFarmerDelivery(req: AuthenticatedRequest, res: Respo
       driverContactPhone,
       consignmentWaybillNumber,
       deliveredQuantityTons,
-      status,
       statusNotes,
     } = req.body;
 
     const relationship = await ContractRelationship.findOne({ _id: id, farmerId }).populate('contractId');
     if (!relationship) {
       return res.status(404).json({ success: false, message: 'Contract relationship not found.' });
+    }
+
+    const quantity = Number(deliveredQuantityTons || relationship.agreedQuantityTons);
+    const parsedDispatchDate = dispatchDate ? new Date(dispatchDate) : new Date();
+    const dispatchScheduled = parsedDispatchDate.getTime() > Date.now();
+    if (
+      relationship.status !== 'active' ||
+      !['quality_inspected', 'dispatch_scheduled'].includes(relationship.lifecycleStage) ||
+      !Number.isFinite(quantity) ||
+      quantity < 0.1 ||
+      quantity > relationship.agreedQuantityTons ||
+      Number.isNaN(parsedDispatchDate.getTime())
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Dispatch scheduling requires an approved quality inspection and a valid quantity and date.',
+      });
     }
 
     const contract: any = relationship.contractId;
@@ -544,31 +592,38 @@ export async function updateFarmerDelivery(req: AuthenticatedRequest, res: Respo
         buyerId: relationship.buyerId,
         destinationWarehouse: destinationWarehouse || contract?.deliveryLocation?.facilityName || 'Central Processing Depot',
         destinationAddress: destinationAddress || contract?.deliveryLocation?.address || 'Buyer Logistics Hub',
-        dispatchDate: dispatchDate ? new Date(dispatchDate) : new Date(),
+        dispatchDate: parsedDispatchDate,
         estimatedArrivalDate: estimatedArrivalDate ? new Date(estimatedArrivalDate) : undefined,
         vehicleRegistrationNumber: vehicleRegistrationNumber || '',
         transporterName: transporterName || '',
         driverContactPhone: driverContactPhone || '',
         consignmentWaybillNumber: consignmentWaybillNumber || '',
-        deliveredQuantityTons: Number(deliveredQuantityTons) || relationship.agreedQuantityTons,
-        status: status || 'dispatched',
+        deliveredQuantityTons: quantity,
+        status: dispatchScheduled ? 'scheduled' : 'dispatched',
         statusNotes: statusNotes || '',
       },
       { upsert: true, new: true }
     );
 
-    if (status === 'dispatched' || !status) {
-      relationship.lifecycleStage = 'in_transit';
-    }
+    recordLifecycleUpdate(
+      relationship,
+      dispatchScheduled ? 'dispatch_scheduled' : 'in_transit',
+      dispatchScheduled ? 88 : 90,
+      farmerId,
+      'farmer',
+      statusNotes || (dispatchScheduled ? 'Consignment dispatch scheduled' : 'Consignment dispatched')
+    );
     await relationship.save();
 
     // Notify buyer
     await Notification.create({
       userId: relationship.buyerId,
-      title: 'Consignment Dispatched',
-      message: `Consignment of ${deliveredQuantityTons || relationship.agreedQuantityTons} tons of ${relationship.cropName} has been dispatched (Vehicle: ${vehicleRegistrationNumber || 'N/A'}).`,
+      title: dispatchScheduled ? 'Consignment Dispatch Scheduled' : 'Consignment Dispatched',
+      message: dispatchScheduled
+        ? `Dispatch of ${quantity} tons of ${relationship.cropName} is scheduled for ${parsedDispatchDate.toLocaleDateString()}.`
+        : `Consignment of ${quantity} tons of ${relationship.cropName} has been dispatched (Vehicle: ${vehicleRegistrationNumber || 'N/A'}).`,
       type: 'delivery',
-      link: `/buyer/contracts/active/${id}`,
+      link: `/buyer/lifecycle/${id}`,
     });
 
     return res.status(200).json({

@@ -25,6 +25,17 @@ export interface IContractRelationship extends MongoDoc {
   totalAgreedValue: number;
   lifecycleStage: LifecycleStage;
   progressPercentage: number;
+  lifecycleHistory: {
+    previousStage: LifecycleStage;
+    newStage: LifecycleStage;
+    progressPercentage: number;
+    previousStatus: RelationshipStatus;
+    newStatus: RelationshipStatus;
+    actorId: Types.ObjectId;
+    actorRole: 'farmer' | 'buyer';
+    notes: string;
+    recordedAt: Date;
+  }[];
   status: RelationshipStatus;
   statusReason?: string;
   activatedAt: Date;
@@ -100,6 +111,57 @@ const ContractRelationshipSchema = new Schema<IContractRelationship>(
       min: 0,
       max: 100,
     },
+    lifecycleHistory: [
+      {
+        previousStage: {
+          type: String,
+          enum: [
+            'sowing',
+            'vegetative',
+            'flowering_fruiting',
+            'mature_harvest_ready',
+            'harvested',
+            'quality_inspected',
+            'dispatch_scheduled',
+            'in_transit',
+            'delivered',
+            'completed',
+          ],
+          required: true,
+        },
+        newStage: {
+          type: String,
+          enum: [
+            'sowing',
+            'vegetative',
+            'flowering_fruiting',
+            'mature_harvest_ready',
+            'harvested',
+            'quality_inspected',
+            'dispatch_scheduled',
+            'in_transit',
+            'delivered',
+            'completed',
+          ],
+          required: true,
+        },
+        progressPercentage: { type: Number, required: true, min: 0, max: 100 },
+        previousStatus: {
+          type: String,
+          enum: ['active', 'completed', 'disputed'],
+          required: true,
+        },
+        newStatus: {
+          type: String,
+          enum: ['active', 'completed', 'disputed'],
+          required: true,
+        },
+        actorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+        actorRole: { type: String, enum: ['farmer', 'buyer'], required: true },
+        notes: { type: String, default: '' },
+        recordedAt: { type: Date, default: Date.now },
+      },
+    ],
     status: {
       type: String,
       enum: ['active', 'completed', 'disputed'],
@@ -120,6 +182,7 @@ const ContractRelationshipSchema = new Schema<IContractRelationship>(
   },
   {
     timestamps: true,
+    optimisticConcurrency: true,
   }
 );
 

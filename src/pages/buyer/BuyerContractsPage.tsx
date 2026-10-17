@@ -120,13 +120,47 @@ export const BuyerContractsPage: React.FC<BuyerContractsPageProps> = ({
   };
 
   const handleSubmitContract = async (status: 'draft' | 'published') => {
-    if (!title || !cropName || !quantityRequiredTons || !pricePerTon) {
+    if (!title.trim() || !cropName.trim() || !quantityRequiredTons || !pricePerTon) {
       setFormError('Please fill in title, crop name, required quantity, and price.');
       return;
     }
 
-    if (!facilityName || !district || !address) {
+    const quantity = Number(quantityRequiredTons);
+    const minimumQuantity = Number(minQuantityPerFarmerTons);
+    const price = Number(pricePerTon);
+    if (!Number.isFinite(quantity) || quantity < 0.1 || !Number.isFinite(minimumQuantity) ||
+      minimumQuantity < 0.1 || minimumQuantity > quantity || !Number.isFinite(price) || price <= 0) {
+      setFormError('Enter a valid quantity and price. Minimum farmer quantity must be positive and no greater than total quantity.');
+      return;
+    }
+
+    if (!facilityName.trim() || !state.trim() || !district.trim() || !address.trim()) {
       setFormError('Please provide complete intake facility location details.');
+      return;
+    }
+
+    const startDate = Date.parse(cultivationStartDate);
+    const harvestDate = Date.parse(expectedHarvestDate);
+    const deliveryDate = Date.parse(deliveryDeadline);
+    if (!Number.isFinite(startDate) || !Number.isFinite(harvestDate) ||
+      !Number.isFinite(deliveryDate) || harvestDate < startDate || deliveryDate < harvestDate) {
+      setFormError('Enter valid dates in order: cultivation start, expected harvest, then delivery deadline.');
+      return;
+    }
+
+    const advance = Number(advancePercentage);
+    const onDelivery = Number(onDeliveryPercentage);
+    const daysToSettle = Number(settlementDays);
+    if (!Number.isFinite(advance) || !Number.isFinite(onDelivery) || advance < 0 ||
+      onDelivery < 0 || Math.abs(advance + onDelivery - 100) > 0.001 ||
+      !Number.isInteger(daysToSettle) || daysToSettle < 1) {
+      setFormError('Payment percentages must total 100%, and settlement days must be a positive whole number.');
+      return;
+    }
+
+    if (!Number.isFinite(maxMoisturePercent) || maxMoisturePercent < 0 || maxMoisturePercent > 100 ||
+      !Number.isFinite(maxForeignMatterPercent) || maxForeignMatterPercent < 0 || maxForeignMatterPercent > 100) {
+      setFormError('Quality thresholds must be percentages between 0 and 100.');
       return;
     }
 
@@ -147,9 +181,9 @@ export const BuyerContractsPage: React.FC<BuyerContractsPageProps> = ({
         cropName: cropName.trim(),
         cropVariety: cropVariety.trim(),
         category,
-        quantityRequiredTons: Number(quantityRequiredTons),
-        minQuantityPerFarmerTons: Number(minQuantityPerFarmerTons) || 1,
-        pricePerTon: Number(pricePerTon),
+        quantityRequiredTons: quantity,
+        minQuantityPerFarmerTons: minimumQuantity,
+        pricePerTon: price,
         qualityStandards: {
           grade,
           maxMoisturePercent: Number(maxMoisturePercent),
@@ -166,10 +200,10 @@ export const BuyerContractsPage: React.FC<BuyerContractsPageProps> = ({
           address: address.trim(),
         },
         paymentTerms: {
-          advancePercentage: Number(advancePercentage),
-          onDeliveryPercentage: Number(onDeliveryPercentage),
-          settlementDays: Number(settlementDays),
-          notes: paymentNotes,
+          advancePercentage: advance,
+          onDeliveryPercentage: onDelivery,
+          settlementDays: daysToSettle,
+          notes: paymentNotes.trim(),
         },
         status,
       };
@@ -192,6 +226,8 @@ export const BuyerContractsPage: React.FC<BuyerContractsPageProps> = ({
           resetForm();
           fetchContracts();
         }, 1000);
+      } else {
+        setFormError(res.data.message || 'The contract demand could not be saved.');
       }
     } catch (err: any) {
       setFormError(getErrorMessage(err));

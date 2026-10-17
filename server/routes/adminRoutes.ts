@@ -10,6 +10,7 @@ import {
   getAllSupportRequestsAdmin,
   updateSupportTicketAdmin,
   getAdminReports,
+  getAdminReportDetails,
   getAdminAuditLogs,
 } from '../controllers/adminController.ts';
 import { verifyToken, requireRole } from '../middleware/auth.ts';
@@ -34,6 +35,7 @@ router.get('/support', getAllSupportRequestsAdmin);
 router.put('/support/:id', updateSupportTicketAdmin);
 
 router.get('/reports', getAdminReports);
+router.get('/reports/details', getAdminReportDetails);
 router.get('/audit-logs', getAdminAuditLogs);
 
 export default router;

@@ -5,10 +5,9 @@ import { User, FarmerProfile, BuyerProfile } from '../types/index.ts';
 interface AuthContextType {
   user: User | null;
   profile: FarmerProfile | BuyerProfile | null;
-  token: string | null;
   isLoading: boolean;
   unreadNotifications: number;
-  login: (identifier: string, password: string) => Promise<{ success: boolean; message?: string }>;
+  login: (identifier: string, password: string) => Promise<{ success: boolean; message?: string; role?: User['role'] }>;
   register: (formData: any) => Promise<{ success: boolean; message?: string }>;
   logout: () => void;
   refreshUser: () => Promise<void>;
@@ -21,19 +20,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<FarmerProfile | BuyerProfile | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('agriya_token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [unreadNotifications, setUnreadNotifications] = useState<number>(0);
 
   const refreshUser = async () => {
-    const storedToken = localStorage.getItem('agriya_token');
-    if (!storedToken) {
-      setUser(null);
-      setProfile(null);
-      setIsLoading(false);
-      return;
-    }
-
     try {
       const res = await api.get('/auth/me');
       if (res.data.success) {
@@ -47,7 +37,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.removeItem('agriya_user');
       setUser(null);
       setProfile(null);
-      setToken(null);
     } finally {
       setIsLoading(false);
     }
@@ -61,21 +50,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.post('/auth/login', { identifier, password });
       if (res.data.success) {
-        const receivedToken = res.data.token;
-        localStorage.setItem('agriya_token', receivedToken);
-        setToken(receivedToken);
+        localStorage.removeItem('agriya_token');
         setUser(res.data.user);
         setProfile(res.data.profile);
         // fetch fresh notifications count
         try {
-          const meRes = await api.get('/auth/me', {
-            headers: { Authorization: `Bearer ${receivedToken}` },
-          });
+          const meRes = await api.get('/auth/me');
           if (meRes.data.unreadNotificationsCount !== undefined) {
             setUnreadNotifications(meRes.data.unreadNotificationsCount);
           }
         } catch {}
-        return { success: true };
+        return { success: true, role: res.data.user.role };
       }
       return { success: false, message: res.data.message || 'Login failed' };
     } catch (err: any) {
@@ -87,9 +72,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await api.post('/auth/register', formData);
       if (res.data.success) {
-        const receivedToken = res.data.token;
-        localStorage.setItem('agriya_token', receivedToken);
-        setToken(receivedToken);
+        localStorage.removeItem('agriya_token');
         setUser(res.data.user);
         setProfile(res.data.profile);
         return { success: true };
@@ -108,7 +91,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('agriya_user');
     setUser(null);
     setProfile(null);
-    setToken(null);
     setUnreadNotifications(0);
     // Replace URL to home to prevent backward navigation restoring UI
     window.location.hash = '#/';
@@ -123,7 +105,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       value={{
         user,
         profile,
-        token,
         isLoading,
         unreadNotifications,
         login,

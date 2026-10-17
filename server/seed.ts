@@ -5,16 +5,29 @@ import { Contract } from './models/Contract.ts';
 
 export async function seedInitialData() {
   try {
-    const adminEmail = process.env.INITIAL_ADMIN_EMAIL || 'admin@agriya.org';
-    const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'AdminSecure@2026';
-    const adminName = process.env.INITIAL_ADMIN_NAME || 'Agriya System Admin';
-    const adminPhone = process.env.INITIAL_ADMIN_PHONE || '+919876543210';
+    const adminEmail = process.env.INITIAL_ADMIN_EMAIL?.trim().toLowerCase();
+    const adminPassword = process.env.INITIAL_ADMIN_PASSWORD;
+    const adminName = process.env.INITIAL_ADMIN_NAME?.trim() || 'Agriya System Admin';
+    const adminPhone = process.env.INITIAL_ADMIN_PHONE?.trim() || '+919876543210';
 
-    // 1. Ensure Initial Admin is provisioned securely
-    const existingAdmin = await User.findOne({ email: adminEmail });
-    let adminUser = existingAdmin;
-    if (!existingAdmin) {
-      console.log(`Provisioning secure Initial Admin account (${adminEmail})...`);
+    if (Boolean(adminEmail) !== Boolean(adminPassword)) {
+      throw new Error('Both INITIAL_ADMIN_EMAIL and INITIAL_ADMIN_PASSWORD must be configured together.');
+    }
+
+    let adminUser = adminEmail ? await User.findOne({ email: adminEmail }).select('+password') : null;
+    if (adminUser && adminUser.role !== 'admin') {
+      throw new Error('The configured initial admin email belongs to a non-admin account.');
+    }
+    const adminNeedsPassword = adminEmail
+      ? await User.exists({ email: adminEmail, password: { $in: [null] } })
+      : await User.exists({ role: 'admin', password: { $in: [null] } });
+    if (adminNeedsPassword) {
+      console.warn('An admin account has no stored password. Run npm run admin:bootstrap to set one.');
+    }
+    if (adminEmail && adminPassword && !adminUser) {
+      if (adminPassword.length < 12) {
+        throw new Error('INITIAL_ADMIN_PASSWORD must be at least 12 characters.');
+      }
       adminUser = new User({
         name: adminName,
         email: adminEmail,
@@ -24,7 +37,7 @@ export async function seedInitialData() {
         isActive: true,
       });
       await adminUser.save();
-      console.log('Initial Admin provisioned successfully.');
+      console.log('Initial admin account provisioned.');
     }
 
     // 2. Provision an initial verified demo buyer to publish initial sample contracts if no contracts exist
@@ -257,7 +270,8 @@ export async function seedInitialData() {
       await Contract.insertMany(sampleContracts);
       console.log(`Seeded ${sampleContracts.length} realistic sample contracts.`);
     }
-  } catch (err) {
-    console.error('Error during data seeding:', err);
+  } catch (err: any) {
+    console.error(`Data seeding failed (${err?.name || 'Error'}).`);
+    throw err;
   }
 }

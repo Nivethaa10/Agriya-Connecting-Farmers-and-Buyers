@@ -11,6 +11,7 @@ import { SupportRequest } from '../models/SupportRequest.ts';
 import { AuditLog } from '../models/AuditLog.ts';
 import { Notification } from '../models/Notification.ts';
 import { DocumentModel } from '../models/Document.ts';
+import { ProgressUpdate } from '../models/ProgressUpdate.ts';
 
 export async function getAdminDashboard(req: AuthenticatedRequest, res: Response) {
   try {
@@ -406,6 +407,127 @@ export async function getAdminReports(req: AuthenticatedRequest, res: Response) 
         relationshipsByStage,
       },
     });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+}
+
+export async function getAdminReportDetails(req: AuthenticatedRequest, res: Response) {
+  try {
+    const { type, value } = req.query;
+    if (typeof value !== 'string' || !value.trim() || value.length > 120) {
+      return res.status(400).json({ success: false, message: 'A report filter value is required.' });
+    }
+
+    if (type === 'contractCategory' || type === 'contractStatus') {
+      const filter = type === 'contractCategory' ? { category: value } : { status: value };
+      const contracts = await Contract.find(filter)
+        .populate('buyerId', 'name')
+        .sort({ createdAt: -1 });
+      const buyerIds = contracts.map((contract) => contract.buyerId?._id).filter(Boolean);
+      const buyerProfiles = await BuyerProfile.find({ userId: { $in: buyerIds } })
+        .select('userId companyName')
+        .lean();
+      const organizationByBuyerId = new Map(
+        buyerProfiles.map((profile) => [String(profile.userId), profile.companyName])
+      );
+      const records = contracts.map((contract) => {
+        const record = contract.toObject();
+        const buyer =
+          record.buyerId && typeof record.buyerId === 'object' && 'name' in record.buyerId
+            ? record.buyerId
+            : null;
+        const buyerId = buyer && '_id' in buyer ? String(buyer._id) : '';
+        const buyerName = buyer && typeof buyer.name === 'string' ? buyer.name : 'Unknown buyer';
+        return {
+          ...record,
+          buyerName,
+          buyerOrganization: buyer
+            ? organizationByBuyerId.get(buyerId) || buyerName
+            : 'Unknown organization',
+        };
+      });
+
+      return res.status(200).json({
+        success: true,
+        type,
+        value,
+        count: records.length,
+        totalTons: records.reduce((total, contract) => total + contract.quantityRequiredTons, 0),
+        records,
+      });
+    }
+
+    if (type === 'paymentStatus') {
+      if (!['pending', 'processing', 'paid', 'failed'].includes(value)) {
+        return res.status(400).json({ success: false, message: 'Unsupported payment report filter.' });
+      }
+
+      const records = await Payment.find({ status: value })
+        .populate('farmerId', 'name')
+        .populate('buyerId', 'name')
+        .populate({
+          path: 'relationshipId',
+          populate: [
+            { path: 'contractId', select: 'title cropName' },
+            { path: 'farmerId', select: 'name' },
+            { path: 'buyerId', select: 'name' },
+          ],
+        })
+        .sort({ createdAt: -1 });
+      const totalAmount = records.reduce((total, payment) => total + payment.amount, 0);
+      return res.status(200).json({
+        success: true,
+        type,
+        value,
+        count: records.length,
+        totalAmount,
+        records,
+      });
+    }
+
+    if (type === 'lifecycleStage') {
+      const allowedStages = [
+        'sowing',
+        'vegetative',
+        'flowering_fruiting',
+        'mature_harvest_ready',
+        'harvested',
+        'quality_inspected',
+        'dispatch_scheduled',
+        'in_transit',
+        'delivered',
+        'completed',
+      ];
+      if (!allowedStages.includes(value)) {
+        return res.status(400).json({ success: false, message: 'Unsupported lifecycle report filter.' });
+      }
+
+      const relationships = await ContractRelationship.find({ lifecycleStage: value })
+        .populate('contractId', 'title cropName category')
+        .populate('farmerId', 'name')
+        .populate('buyerId', 'name')
+        .sort({ updatedAt: -1 });
+      const relationshipIds = relationships.map((relationship) => relationship._id);
+      const progressUpdates = await ProgressUpdate.find({ relationshipId: { $in: relationshipIds } })
+        .sort({ recordedAt: -1 })
+        .lean();
+      const latestProgressByRelationship = new Map<string, (typeof progressUpdates)[number]>();
+      for (const progress of progressUpdates) {
+        const relationshipId = String(progress.relationshipId);
+        if (!latestProgressByRelationship.has(relationshipId)) {
+          latestProgressByRelationship.set(relationshipId, progress);
+        }
+      }
+      const records = relationships.map((relationship) => ({
+        ...relationship.toObject(),
+        latestProgress: latestProgressByRelationship.get(String(relationship._id)) || null,
+      }));
+
+      return res.status(200).json({ success: true, type, value, count: records.length, records });
+    }
+
+    return res.status(400).json({ success: false, message: 'Unsupported report detail type.' });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }

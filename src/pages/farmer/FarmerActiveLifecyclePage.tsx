@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, getErrorMessage } from '../../services/api.ts';
+import { ContractLifecycleHistory } from '../../components/ContractLifecycleHistory.tsx';
 import {
   ContractRelationship,
   ProgressUpdate,
@@ -23,6 +24,13 @@ import {
   FileText,
   LifeBuoy,
 } from 'lucide-react';
+
+const cultivationStages = [
+  { stage: 'sowing', label: 'Sowing & Emergence', min: 10, max: 24 },
+  { stage: 'vegetative', label: 'Vegetative Growth & Tiller Development', min: 25, max: 49 },
+  { stage: 'flowering_fruiting', label: 'Flowering & Pod / Grain Formation', min: 50, max: 69 },
+  { stage: 'mature_harvest_ready', label: 'Ripening & Mature Harvest Ready', min: 70, max: 79 },
+] as const;
 
 interface FarmerActiveLifecyclePageProps {
   relationshipId: string;
@@ -90,6 +98,14 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
       const res = await api.get(`/farmer/active-contracts/${relationshipId}`);
       if (res.data.success) {
         setRelationship(res.data.relationship);
+        const currentStageIndex = cultivationStages.findIndex(
+          (stage) => stage.stage === res.data.relationship?.lifecycleStage
+        );
+        const nextStage = cultivationStages[Math.max(0, Math.min(currentStageIndex + 1, cultivationStages.length - 1))];
+        if (nextStage) {
+          setStageName(nextStage.label);
+          setProgressPercentage(Math.max(nextStage.min, res.data.relationship.progressPercentage));
+        }
         setProgressUpdates(res.data.progressUpdates || []);
         setHarvest(res.data.harvest);
         setQualityInspection(res.data.qualityInspection);
@@ -215,6 +231,17 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
     );
   }
 
+  const currentGrowthIndex = cultivationStages.findIndex(
+    (stage) => stage.stage === relationship.lifecycleStage
+  );
+  const selectedGrowthStage =
+    cultivationStages.find((stage) => stage.label === stageName) || cultivationStages[1];
+  const allowedGrowthStages = cultivationStages.filter(
+    (_, index) => index >= currentGrowthIndex && index <= currentGrowthIndex + 1
+  );
+  const canLogProgress =
+    relationship.status === 'active' && currentGrowthIndex >= 0 && currentGrowthIndex < cultivationStages.length;
+
   return (
     <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-8">
       {/* Header Banner */}
@@ -235,6 +262,9 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
             <p className="text-xs text-neutral-500 mt-0.5">
               Contracted Buyer: <strong>{relationship.buyerId?.name || 'Institutional Partner'}</strong> · Contact:{' '}
               {relationship.buyerId?.phone || 'N/A'}
+            </p>
+            <p className="text-[11px] text-neutral-400 mt-1">
+              Last updated {new Date(relationship.updatedAt).toLocaleString('en-IN')}
             </p>
           </div>
 
@@ -299,6 +329,8 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
           </div>
         </div>
       </div>
+
+      <ContractLifecycleHistory entries={relationship.lifecycleHistory} />
 
       {notificationMsg && (
         <div
@@ -373,7 +405,7 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
                 Post field milestones to demonstrate crop health and build buyer trust
               </p>
             </div>
-            {!isAddingProgress && (
+            {!isAddingProgress && canLogProgress && (
               <button
                 onClick={() => setIsAddingProgress(true)}
                 className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950 transition-colors flex items-center gap-1.5 shadow-xs"
@@ -401,19 +433,17 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
                   </label>
                   <select
                     value={stageName}
-                    onChange={(e) => setStageName(e.target.value)}
+                    onChange={(e) => {
+                      const selected = cultivationStages.find((stage) => stage.label === e.target.value);
+                      if (!selected) return;
+                      setStageName(selected.label);
+                      setProgressPercentage(Math.max(selected.min, Math.min(selected.max, progressPercentage)));
+                    }}
                     className="w-full text-xs rounded-xl border border-neutral-300 px-3 py-2 text-neutral-900 bg-white"
                   >
-                    <option value="Sowing & Emergence">Sowing & Emergence</option>
-                    <option value="Vegetative Growth & Tiller Development">
-                      Vegetative Growth & Tiller Development
-                    </option>
-                    <option value="Flowering & Pod / Grain Formation">
-                      Flowering & Pod / Grain Formation
-                    </option>
-                    <option value="Ripening & Mature Harvest Ready">
-                      Ripening & Mature Harvest Ready
-                    </option>
+                    {allowedGrowthStages.map((stage) => (
+                      <option key={stage.stage} value={stage.label}>{stage.label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -423,8 +453,8 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
                   </label>
                   <input
                     type="range"
-                    min="10"
-                    max="100"
+                    min={selectedGrowthStage.min}
+                    max={selectedGrowthStage.max}
                     step="5"
                     value={progressPercentage}
                     onChange={(e) => setProgressPercentage(Number(e.target.value))}
@@ -572,7 +602,7 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
                 Record actual harvested yield for intake and review buyer lab quality certificates
               </p>
             </div>
-            {!harvest && !isRecordingHarvest && (
+            {!harvest && !isRecordingHarvest && relationship.lifecycleStage === 'mature_harvest_ready' && relationship.status === 'active' && (
               <button
                 onClick={() => setIsRecordingHarvest(true)}
                 className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950 transition-colors flex items-center gap-1.5 shadow-xs"
@@ -825,7 +855,7 @@ export const FarmerActiveLifecyclePage: React.FC<FarmerActiveLifecyclePageProps>
                 Provide transporter and vehicle registration details to coordinate delivery to the buyer's depot
               </p>
             </div>
-            {!isUpdatingDelivery && (
+            {!isUpdatingDelivery && ['quality_inspected', 'dispatch_scheduled'].includes(relationship.lifecycleStage) && relationship.status === 'active' && (
               <button
                 onClick={() => setIsUpdatingDelivery(true)}
                 className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950 transition-colors flex items-center gap-1.5 shadow-xs"

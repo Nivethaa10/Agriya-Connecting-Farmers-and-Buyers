@@ -56,6 +56,9 @@ export const BuyerDashboard: React.FC<BuyerDashboardProps> = ({
 
   const verificationStatus = stats?.verificationStatus || buyerProfile?.verificationStatus || 'not_submitted';
   const isVerified = verificationStatus === 'verified';
+  const applicationReviewContractId =
+    recentApplications.find((application) => application.contractId?._id)?.contractId?._id ||
+    recentContracts[0]?._id;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 space-y-10">
@@ -197,7 +200,16 @@ export const BuyerDashboard: React.FC<BuyerDashboardProps> = ({
           <div className="flex items-center justify-between">
             <div>
               <h2 className="font-heading text-lg font-bold text-neutral-900">
-                Pending Farmer Applications
+                <button
+                  type="button"
+                  disabled={!applicationReviewContractId}
+                  onClick={() =>
+                    onNavigate(`/buyer/contracts/${applicationReviewContractId}/applications`)
+                  }
+                  className="text-left enabled:hover:text-emerald-900 enabled:cursor-pointer disabled:cursor-default"
+                >
+                  Pending Farmer Applications
+                </button>
               </h2>
               <p className="text-xs text-neutral-500">Review producer offers and establish contracts</p>
             </div>

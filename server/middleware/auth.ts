@@ -2,10 +2,34 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { User, IUser } from '../models/User.ts';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'agriya-production-secret-key-change-in-production-2026';
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error('JWT_SECRET is not configured.');
+  }
+  return secret;
+}
 
 export interface AuthenticatedRequest extends Request {
   user?: IUser;
+}
+
+function getSessionCookie(req: AuthenticatedRequest): string | undefined {
+  const cookieHeader = req.headers.cookie;
+  if (!cookieHeader) return undefined;
+
+  const sessionCookie = cookieHeader
+    .split(';')
+    .map((cookie) => cookie.trim())
+    .find((cookie) => cookie.startsWith('agriya_session='));
+
+  if (!sessionCookie) return undefined;
+  const value = sessionCookie.slice('agriya_session='.length);
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
+  }
 }
 
 export function generateToken(user: IUser): string {
@@ -15,7 +39,7 @@ export function generateToken(user: IUser): string {
       email: user.email,
       role: user.role,
     },
-    JWT_SECRET,
+    getJwtSecret(),
     { expiresIn: '7d' }
   );
 }
@@ -23,25 +47,35 @@ export function generateToken(user: IUser): string {
 export async function verifyToken(req: AuthenticatedRequest, res: Response, next: NextFunction) {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    const bearerToken = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice('Bearer '.length)
+      : undefined;
+    const cookieToken = getSessionCookie(req);
+    const tokens = [bearerToken, cookieToken].filter(
+      (token): token is string => Boolean(token)
+    );
+
+    if (tokens.length === 0) {
       return res.status(401).json({
         success: false,
         message: 'Authentication token missing. Please sign in.',
       });
     }
 
-    const token = authHeader.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid authorization format.',
-      });
+    let decoded: jwt.JwtPayload | undefined;
+    for (const token of tokens) {
+      try {
+        const payload = jwt.verify(token, getJwtSecret());
+        if (typeof payload === 'object' && payload !== null) {
+          decoded = payload;
+          break;
+        }
+      } catch {
+        // Continue to the cookie token when a legacy bearer token is stale.
+      }
     }
 
-    let decoded: any;
-    try {
-      decoded = jwt.verify(token, JWT_SECRET);
-    } catch (err: any) {
+    if (!decoded) {
       return res.status(401).json({
         success: false,
         message: 'Session expired or token invalid. Please log in again.',
@@ -69,7 +103,6 @@ export async function verifyToken(req: AuthenticatedRequest, res: Response, next
     return res.status(500).json({
       success: false,
       message: 'Authentication error',
-      error: err.message,
     });
   }
 }

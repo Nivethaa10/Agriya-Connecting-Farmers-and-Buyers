@@ -32,6 +32,9 @@ import { BuyerActiveLifecyclePage } from './pages/buyer/BuyerActiveLifecyclePage
 // Admin pages
 import { AdminDashboard } from './pages/admin/AdminDashboard.tsx';
 import { AdminVerificationsPage } from './pages/admin/AdminVerificationsPage.tsx';
+import { AdminReportsPage } from './pages/admin/AdminReportsPage.tsx';
+import { AdminUsersPage } from './pages/admin/AdminUsersPage.tsx';
+import { AdminAuditLogsPage } from './pages/admin/AdminAuditLogsPage.tsx';
 
 import { api } from './services/api.ts';
 import { Database, AlertTriangle, CheckCircle2, X } from 'lucide-react';
@@ -113,9 +116,81 @@ function MainApp() {
       );
     }
 
+    if (currentPath.startsWith('/admin/') && user?.role !== 'admin') {
+      const destination = user
+        ? user.role === 'farmer'
+          ? '/farmer/dashboard'
+          : '/buyer/dashboard'
+        : '/login';
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-20 text-center space-y-4">
+          <h1 className="font-heading text-2xl font-bold text-neutral-900">Administrator access required</h1>
+          <p className="text-sm text-neutral-600">Sign in with an administrator account to open this page.</p>
+          <button
+            type="button"
+            onClick={() => navigate(destination)}
+            className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950"
+          >
+            {user ? 'Go to my dashboard' : 'Sign in'}
+          </button>
+        </div>
+      );
+    }
+
+    if (currentPath.startsWith('/buyer/') && user?.role !== 'buyer') {
+      const destination = user
+        ? user.role === 'farmer'
+          ? '/farmer/dashboard'
+          : '/admin/dashboard'
+        : '/login';
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-20 text-center space-y-4">
+          <h1 className="font-heading text-2xl font-bold text-neutral-900">Buyer access required</h1>
+          <p className="text-sm text-neutral-600">Sign in with a buyer account to open this page.</p>
+          <button
+            type="button"
+            onClick={() => navigate(destination)}
+            className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950"
+          >
+            {user ? 'Go to my dashboard' : 'Sign in'}
+          </button>
+        </div>
+      );
+    }
+
+    if (currentPath.startsWith('/farmer/') && user?.role !== 'farmer') {
+      const destination = user
+        ? user.role === 'buyer'
+          ? '/buyer/dashboard'
+          : '/admin/dashboard'
+        : '/login';
+      return (
+        <div className="max-w-3xl mx-auto px-4 py-20 text-center space-y-4">
+          <h1 className="font-heading text-2xl font-bold text-neutral-900">Farmer access required</h1>
+          <p className="text-sm text-neutral-600">Sign in with a farmer account to open this page.</p>
+          <button
+            type="button"
+            onClick={() => navigate(destination)}
+            className="px-4 py-2 text-xs font-semibold text-white bg-emerald-900 rounded-xl hover:bg-emerald-950"
+          >
+            {user ? 'Go to my dashboard' : 'Sign in'}
+          </button>
+        </div>
+      );
+    }
+
     // Dynamic Parameter Routes
-    if (currentPath.startsWith('/farmer/lifecycle/')) {
-      const relId = getSubRouteId('/farmer/lifecycle/');
+    if (
+      currentPath.startsWith('/farmer/lifecycle/') ||
+      currentPath.startsWith('/farmer/active/') ||
+      currentPath.startsWith('/farmer/contracts/active/')
+    ) {
+      const prefix = currentPath.startsWith('/farmer/lifecycle/')
+        ? '/farmer/lifecycle/'
+        : currentPath.startsWith('/farmer/active/')
+          ? '/farmer/active/'
+          : '/farmer/contracts/active/';
+      const relId = getSubRouteId(prefix);
       return (
         <FarmerActiveLifecyclePage
           relationshipId={relId}
@@ -125,8 +200,17 @@ function MainApp() {
       );
     }
 
-    if (currentPath.startsWith('/buyer/lifecycle/')) {
-      const relId = getSubRouteId('/buyer/lifecycle/');
+    if (
+      currentPath.startsWith('/buyer/lifecycle/') ||
+      currentPath.startsWith('/buyer/active/') ||
+      currentPath.startsWith('/buyer/contracts/active/')
+    ) {
+      const prefix = currentPath.startsWith('/buyer/lifecycle/')
+        ? '/buyer/lifecycle/'
+        : currentPath.startsWith('/buyer/active/')
+          ? '/buyer/active/'
+          : '/buyer/contracts/active/';
+      const relId = getSubRouteId(prefix);
       return (
         <BuyerActiveLifecyclePage
           relationshipId={relId}
@@ -191,6 +275,7 @@ function MainApp() {
         return <FarmerApplicationsPage onNavigate={navigate} />;
 
       case '/farmer/contracts':
+      case '/farmer/active-contracts':
         return <FarmerActiveContractsPage onNavigate={navigate} />;
 
       // Buyer Module
@@ -207,7 +292,11 @@ function MainApp() {
         return <BuyerProfilePage onOpenUploadDoc={() => setIsUploadDocOpen(true)} />;
 
       case '/buyer/manage-contracts':
+      case '/buyer/contracts':
         return <BuyerContractsPage onNavigate={navigate} />;
+
+      case '/buyer/contracts/new':
+        return <BuyerContractsPage onNavigate={navigate} openCreateFormDirectly />;
 
       case '/buyer/active-contracts':
         return <BuyerActiveContractsPage onNavigate={navigate} />;
@@ -218,6 +307,15 @@ function MainApp() {
 
       case '/admin/verifications':
         return <AdminVerificationsPage />;
+
+      case '/admin/reports':
+        return <AdminReportsPage onNavigate={navigate} />;
+
+      case '/admin/users':
+        return <AdminUsersPage onNavigate={navigate} />;
+
+      case '/admin/audit-logs':
+        return <AdminAuditLogsPage onNavigate={navigate} />;
 
       default:
         return (

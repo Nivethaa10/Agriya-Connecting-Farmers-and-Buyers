@@ -5,14 +5,12 @@ import fs from 'fs';
 let mongoMemoryServerInstance: any = null;
 
 /**
- * Safely masks MongoDB URI credentials for logging and UI display.
- * Retains protocol, username, host, and database while masking the password.
+ * Masks authentication details before a URI is logged or returned.
  */
 export function maskMongoUri(uri?: string): string {
   if (!uri) return 'NONE';
-  // Replaces the password in mongodb://user:password@host or mongodb+srv://user:password@host
   if (uri.includes('@')) {
-    return uri.replace(/(mongodb(?:\+srv)?:\/\/[^:]+:)[^@]+(@)/, '$1****$2');
+    return uri.replace(/(mongodb(?:\+srv)?:\/\/)[^/@]+@/, '$1****@');
   }
   return uri.replace(/(mongodb(?:\+srv)?:\/\/)([^/]+)/, '$1****');
 }
@@ -135,7 +133,7 @@ export async function testAtlasConnection(uriOverride?: string): Promise<{
       details: 'Atlas connection, persistent write, read query, and deletion confirmed successfully.',
     };
   } catch (err: any) {
-    console.error(`[Atlas Diagnostic Error] ${err.message}`);
+    console.error(`[Atlas Diagnostic Error] ${err.name || 'ConnectionError'} (details omitted)`);
     try {
       await testConn.close();
     } catch {
@@ -145,7 +143,7 @@ export async function testAtlasConnection(uriOverride?: string): Promise<{
       success: false,
       provider: 'atlas',
       maskedUri,
-      error: err.message,
+      error: 'MongoDB Atlas connection failed. Details omitted.',
       errorCode: err.code,
       errorCodeName: err.codeName,
       readWriteSuccess: false,
@@ -186,30 +184,32 @@ export async function connectDB() {
       return;
     } catch (err: any) {
       dbStatus.atlasConnected = false;
-      dbStatus.atlasError = err.message;
+      dbStatus.atlasError = 'MongoDB Atlas connection failed. Details omitted.';
       dbStatus.atlasErrorCode = err.code;
       dbStatus.atlasErrorCodeName = err.codeName;
 
       console.error(`\n================================================================================`);
-      console.error(`🚨 [MONGODB ATLAS CONNECTION FAILED - LOCAL PERSISTENT FALLBACK ACTIVE]`);
+      console.error(`🚨 [MONGODB ATLAS CONNECTION FAILED]`);
       console.error(`   Target URI:       ${maskedUri}`);
-      console.error(`   Failure Reason:   ${err.message}`);
       console.error(`   Atlas Error Code: ${err.code || 'N/A'} (${err.codeName || 'N/A'})`);
-      console.error(`   Fallback Engine:  Embedded Mongo daemon with persistent WiredTiger disk storage`);
-      console.error(`   Status:           Application remains operational with local disk persistence.`);
-      console.error(`   Action Needed:    Update database user credentials in MongoDB Atlas UI (Database Access).`);
       console.error(`================================================================================\n`);
 
-      // If strict mode requested, do not fallback
-      if (process.env.STRICT_MONGODB_ATLAS === 'true') {
-        throw new Error(`MongoDB Atlas connection failed: ${err.message}. Local fallback disabled by STRICT_MONGODB_ATLAS.`);
+      if (
+        process.env.MONGODB_ALLOW_LOCAL_FALLBACK !== 'true' ||
+        process.env.STRICT_MONGODB_ATLAS === 'true'
+      ) {
+        throw new Error('MongoDB Atlas connection failed. Local fallback is disabled.');
       }
+
+      console.warn('Explicit local database fallback enabled; application data will not be stored in Atlas.');
     }
   }
 
+  const localUri = uri && !isExternal ? uri : 'mongodb://127.0.0.1:27017/agriya';
+
   // Check if a local mongod is listening on standard port 27017
   try {
-    await mongoose.connect(uri || 'mongodb://127.0.0.1:27017/agriya', {
+    await mongoose.connect(localUri, {
       serverSelectionTimeoutMS: 1500,
     });
     console.log('Connected to existing local MongoDB instance.');

@@ -13,6 +13,7 @@ import { Payment } from '../models/Payment.ts';
 import { Notification } from '../models/Notification.ts';
 import { DocumentModel } from '../models/Document.ts';
 import { User } from '../models/User.ts';
+import { recordLifecycleUpdate } from '../utils/contractLifecycle.ts';
 
 export async function getBuyerProfile(req: AuthenticatedRequest, res: Response) {
   try {
@@ -255,6 +256,20 @@ export async function createContract(req: AuthenticatedRequest, res: Response) {
       });
     }
 
+    const quantity = Number(quantityRequiredTons);
+    const minQuantity = Number(minQuantityPerFarmerTons ?? 1);
+    const price = Number(pricePerTon);
+    if (
+      !Number.isFinite(quantity) || quantity < 0.1 ||
+      !Number.isFinite(minQuantity) || minQuantity < 0.1 || minQuantity > quantity ||
+      !Number.isFinite(price) || price <= 0
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quantity, minimum farmer quantity, and price must be valid positive amounts.',
+      });
+    }
+
     if (!cultivationStartDate || !expectedHarvestDate || !deliveryDeadline) {
       return res.status(400).json({
         success: false,
@@ -262,10 +277,33 @@ export async function createContract(req: AuthenticatedRequest, res: Response) {
       });
     }
 
-    if (!deliveryLocation?.facilityName || !deliveryLocation?.state || !deliveryLocation?.district) {
+    const startDate = new Date(cultivationStartDate);
+    const harvestDate = new Date(expectedHarvestDate);
+    const deliveryDate = new Date(deliveryDeadline);
+    if (
+      Number.isNaN(startDate.getTime()) || Number.isNaN(harvestDate.getTime()) ||
+      Number.isNaN(deliveryDate.getTime()) || harvestDate < startDate || deliveryDate < harvestDate
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Delivery facility name, state, and district are mandatory.',
+        message: 'Dates must be valid and ordered from cultivation start through harvest to delivery.',
+      });
+    }
+
+    if (
+      !deliveryLocation?.facilityName?.trim() || !deliveryLocation?.state?.trim() ||
+      !deliveryLocation?.district?.trim() || !deliveryLocation?.address?.trim()
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery facility name, state, district, and address are mandatory.',
+      });
+    }
+
+    if (status !== 'draft' && status !== 'published') {
+      return res.status(400).json({
+        success: false,
+        message: 'Contract status must be draft or published.',
       });
     }
 
@@ -286,18 +324,18 @@ export async function createContract(req: AuthenticatedRequest, res: Response) {
       cropName: cropName.trim(),
       cropVariety: cropVariety || '',
       category,
-      quantityRequiredTons: Number(quantityRequiredTons),
-      minQuantityPerFarmerTons: Number(minQuantityPerFarmerTons) || 1,
-      pricePerTon: Number(pricePerTon),
+      quantityRequiredTons: quantity,
+      minQuantityPerFarmerTons: minQuantity,
+      pricePerTon: price,
       qualityStandards: qualityStandards || {
         grade: 'Grade A - Premium Standard',
         maxMoisturePercent: 12,
         maxForeignMatterPercent: 1.5,
         specificationNotes: '',
       },
-      cultivationStartDate: new Date(cultivationStartDate),
-      expectedHarvestDate: new Date(expectedHarvestDate),
-      deliveryDeadline: new Date(deliveryDeadline),
+      cultivationStartDate: startDate,
+      expectedHarvestDate: harvestDate,
+      deliveryDeadline: deliveryDate,
       deliveryLocation,
       paymentTerms: paymentTerms || {
         advancePercentage: 20,
@@ -563,7 +601,7 @@ export async function reviewApplication(req: AuthenticatedRequest, res: Response
         title: 'Contract Application Approved!',
         message: `Congratulations! Your application for "${contract.title}" has been approved for ${agreedQuantity} tons. Active contract relationship is now established.`,
         type: 'contract',
-        link: `/farmer/contracts/active/${relationship._id}`,
+        link: `/farmer/lifecycle/${relationship._id}`,
       });
     }
 
@@ -585,8 +623,24 @@ export async function getBuyerActiveContracts(req: AuthenticatedRequest, res: Re
       .populate('farmerId', 'name email phone avatarUrl')
       .populate('contractId')
       .sort({ updatedAt: -1 });
+    const progressUpdates = await ProgressUpdate.find({
+      relationshipId: { $in: relationships.map((relationship) => relationship._id) },
+    })
+      .sort({ recordedAt: -1 })
+      .lean();
+    const latestProgressByRelationship = new Map<string, (typeof progressUpdates)[number]>();
+    for (const progress of progressUpdates) {
+      const relationshipId = String(progress.relationshipId);
+      if (!latestProgressByRelationship.has(relationshipId)) {
+        latestProgressByRelationship.set(relationshipId, progress);
+      }
+    }
+    const relationshipsWithProgress = relationships.map((relationship) => ({
+      ...relationship.toObject(),
+      latestProgress: latestProgressByRelationship.get(String(relationship._id)) || null,
+    }));
 
-    return res.status(200).json({ success: true, relationships });
+    return res.status(200).json({ success: true, relationships: relationshipsWithProgress });
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err.message });
   }
@@ -657,6 +711,23 @@ export async function recordBuyerQualityInspection(req: AuthenticatedRequest, re
       return res.status(404).json({ success: false, message: 'Contract relationship not found' });
     }
 
+    const validDecisions = [
+      'approved_grade_a',
+      'approved_grade_b',
+      'conditional_acceptance',
+      'rejected',
+    ];
+    if (
+      relationship.status !== 'active' ||
+      relationship.lifecycleStage !== 'harvested' ||
+      !validDecisions.includes(decision)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Quality inspection requires an active contract with a recorded harvest and a valid decision.',
+      });
+    }
+
     const inspection = await QualityInspection.findOneAndUpdate(
       { relationshipId: id },
       {
@@ -676,11 +747,25 @@ export async function recordBuyerQualityInspection(req: AuthenticatedRequest, re
     );
 
     if (decision === 'rejected') {
-      relationship.status = 'disputed';
+      recordLifecycleUpdate(
+        relationship,
+        relationship.lifecycleStage,
+        relationship.progressPercentage,
+        buyerId,
+        'buyer',
+        inspectorRemarks,
+        'disputed'
+      );
       relationship.statusReason = `Quality inspection rejected: ${inspectorRemarks}`;
     } else {
-      relationship.lifecycleStage = 'quality_inspected';
-      relationship.progressPercentage = 85;
+      recordLifecycleUpdate(
+        relationship,
+        'quality_inspected',
+        85,
+        buyerId,
+        'buyer',
+        inspectorRemarks
+      );
     }
     await relationship.save();
 
@@ -690,7 +775,7 @@ export async function recordBuyerQualityInspection(req: AuthenticatedRequest, re
       title: 'Quality Inspection Completed',
       message: `Quality inspection for ${relationship.cropName} completed: ${decision.replace(/_/g, ' ').toUpperCase()}. Remarks: ${inspectorRemarks}`,
       type: 'progress',
-      link: `/farmer/contracts/active/${id}`,
+      link: `/farmer/lifecycle/${id}`,
     });
 
     return res.status(200).json({
@@ -719,6 +804,16 @@ export async function confirmDeliveryReceipt(req: AuthenticatedRequest, res: Res
     if (!delivery) {
       return res.status(404).json({ success: false, message: 'Delivery record not found' });
     }
+    if (
+      relationship.status !== 'active' ||
+      relationship.lifecycleStage !== 'in_transit' ||
+      !['dispatched', 'in_transit'].includes(delivery.status)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Delivery can only be confirmed after the farmer has dispatched the consignment.',
+      });
+    }
 
     delivery.status = 'confirmed';
     delivery.confirmedAt = new Date();
@@ -726,8 +821,7 @@ export async function confirmDeliveryReceipt(req: AuthenticatedRequest, res: Res
     if (notes) delivery.statusNotes = notes;
     await delivery.save();
 
-    relationship.lifecycleStage = 'delivered';
-    relationship.progressPercentage = 95;
+    recordLifecycleUpdate(relationship, 'delivered', 95, buyerId, 'buyer', notes || 'Delivery confirmed');
     await relationship.save();
 
     // Notify farmer
@@ -736,7 +830,7 @@ export async function confirmDeliveryReceipt(req: AuthenticatedRequest, res: Res
       title: 'Consignment Delivery Confirmed by Buyer',
       message: `The buyer has confirmed receipt of delivery for ${relationship.cropName}. Payment settlement is in progress.`,
       type: 'delivery',
-      link: `/farmer/contracts/active/${id}`,
+      link: `/farmer/lifecycle/${id}`,
     });
 
     return res.status(200).json({
@@ -763,7 +857,8 @@ export async function recordBuyerPayment(req: AuthenticatedRequest, res: Respons
       notes,
     } = req.body;
 
-    if (!amount || Number(amount) <= 0) {
+    const numericAmount = Number(amount);
+    if (!Number.isFinite(numericAmount) || numericAmount < 1) {
       return res.status(400).json({ success: false, message: 'Valid payment amount is required.' });
     }
 
@@ -772,25 +867,60 @@ export async function recordBuyerPayment(req: AuthenticatedRequest, res: Respons
       return res.status(404).json({ success: false, message: 'Contract relationship not found' });
     }
 
+    const paymentStatus = status || 'paid';
+    if (
+      relationship.status !== 'active' ||
+      relationship.lifecycleStage !== 'delivered' ||
+      !['pending', 'processing', 'paid', 'failed'].includes(paymentStatus)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment records require a delivered contract and a valid payment status.',
+      });
+    }
+
+    const [{ totalPaid = 0 } = {}] = await Payment.aggregate([
+      { $match: { relationshipId: relationship._id, status: 'paid' } },
+      { $group: { _id: null, totalPaid: { $sum: '$amount' } } },
+    ]);
+    if (
+      paymentStatus === 'paid' &&
+      numericAmount + totalPaid > relationship.totalAgreedValue
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment amount exceeds the remaining agreed contract value.',
+      });
+    }
+
     const payment = await Payment.create({
       relationshipId: id,
       farmerId: relationship.farmerId,
       buyerId,
-      amount: Number(amount),
+      amount: numericAmount,
       currency: 'INR',
       paymentType: paymentType || 'final_settlement',
       paymentMethod: paymentMethod || 'Direct Bank Transfer',
       bankReferenceNumber: bankReferenceNumber || `UTR_${Date.now()}`,
-      status: status || 'paid',
-      paidAt: status === 'paid' ? new Date() : undefined,
+      status: paymentStatus,
+      paidAt: paymentStatus === 'paid' ? new Date() : undefined,
       notes: notes || 'Payment settlement released through banking channel.',
       recordedBy: buyerId,
     });
 
-    if (status === 'paid') {
-      relationship.lifecycleStage = 'completed';
-      relationship.progressPercentage = 100;
-      relationship.status = 'completed';
+    if (
+      paymentStatus === 'paid' &&
+      numericAmount + totalPaid >= relationship.totalAgreedValue
+    ) {
+      recordLifecycleUpdate(
+        relationship,
+        'completed',
+        100,
+        buyerId,
+        'buyer',
+        notes || 'Contract fully paid',
+        'completed'
+      );
       relationship.completedAt = new Date();
       await relationship.save();
     }
@@ -798,10 +928,10 @@ export async function recordBuyerPayment(req: AuthenticatedRequest, res: Respons
     // Notify farmer
     await Notification.create({
       userId: relationship.farmerId,
-      title: status === 'paid' ? 'Payment Settlement Recorded (₹' + amount + ')' : 'Payment Status Updated',
-      message: `Buyer has recorded payment of ₹${Number(amount).toLocaleString('en-IN')} via ${paymentMethod || 'Bank Transfer'}. Ref: ${bankReferenceNumber || 'N/A'}.`,
+      title: paymentStatus === 'paid' ? 'Payment Settlement Recorded (₹' + numericAmount + ')' : 'Payment Status Updated',
+      message: `Buyer has recorded payment of ₹${numericAmount.toLocaleString('en-IN')} via ${paymentMethod || 'Bank Transfer'}. Ref: ${bankReferenceNumber || 'N/A'}.`,
       type: 'payment',
-      link: `/farmer/contracts/active/${id}`,
+      link: `/farmer/lifecycle/${id}`,
     });
 
     return res.status(201).json({

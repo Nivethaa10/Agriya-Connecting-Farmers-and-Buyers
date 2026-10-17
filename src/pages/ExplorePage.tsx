@@ -286,7 +286,9 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {contracts.map((contract) => {
             const hasApplied = appliedContractIds.includes(contract._id);
-            const pricePerQuintal = (contract.pricePerTon / 10).toFixed(0);
+            const pricePerQuintal = contract.pricePerTon == null
+              ? null
+              : (contract.pricePerTon / 10).toFixed(0);
 
             return (
               <div
@@ -325,11 +327,11 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
                       <span className="text-xs text-neutral-500">Guaranteed Price</span>
                       <div className="text-right">
                         <span className="text-base font-bold text-emerald-900 tabular-nums">
-                          ₹{contract.pricePerTon.toLocaleString('en-IN')}
+                          ₹{contract.pricePerTon?.toLocaleString('en-IN') ?? 'N/A'}
                         </span>
                         <span className="text-[11px] text-neutral-500 ml-1">/ ton</span>
                         <div className="text-[10px] text-neutral-400 tabular-nums">
-                          (₹{Number(pricePerQuintal).toLocaleString('en-IN')} / quintal)
+                          (₹{pricePerQuintal == null ? 'N/A' : Number(pricePerQuintal).toLocaleString('en-IN')} / quintal)
                         </div>
                       </div>
                     </div>
@@ -454,7 +456,7 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
                 <div className="p-3 rounded-xl bg-neutral-50 border border-neutral-200/70 text-center">
                   <span className="text-[11px] text-neutral-500 block">Guaranteed Price</span>
                   <span className="text-sm font-bold text-emerald-950 tabular-nums">
-                    ₹{selectedContract.pricePerTon.toLocaleString('en-IN')}
+                    ₹{selectedContract.pricePerTon?.toLocaleString('en-IN') ?? 'N/A'}
                   </span>
                   <span className="text-[10px] text-neutral-400 block">per metric ton</span>
                 </div>
@@ -695,16 +697,18 @@ export const ExplorePage: React.FC<ExplorePageProps> = ({
                 <div className="flex justify-between text-neutral-600">
                   <span>Price per Ton</span>
                   <span className="tabular-nums font-semibold text-neutral-900">
-                    ₹{selectedContract.pricePerTon.toLocaleString('en-IN')}
+                    ₹{selectedContract.pricePerTon?.toLocaleString('en-IN') ?? 'N/A'}
                   </span>
                 </div>
                 <div className="flex justify-between text-neutral-900 font-bold border-t border-neutral-200 pt-1">
                   <span>Estimated Total Contract Value</span>
                   <span className="tabular-nums text-emerald-950">
                     ₹
-                    {(
-                      (Number(quantityOffered) || 0) * selectedContract.pricePerTon
-                    ).toLocaleString('en-IN')}
+                    {selectedContract.pricePerTon == null
+                      ? 'N/A'
+                      : (
+                          (Number(quantityOffered) || 0) * selectedContract.pricePerTon
+                        ).toLocaleString('en-IN')}
                   </span>
                 </div>
               </div>
